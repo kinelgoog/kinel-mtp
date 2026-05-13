@@ -1,58 +1,42 @@
-const fs = require('fs');
 const http = require('http');
 const { spawn } = require('child_process');
-const path = require('path');
 
-// --- НАСТРОЙКИ ---
 const PORT = process.env.PORT || 3000;
 const HOSTNAME = process.env.RENDER_EXTERNAL_HOSTNAME || "your-app.onrender.com";
-// Стабильный Base64 секрет с маскировкой под google.com
-const SECRET = "7l6-Z28_L_6-Z28_L_6-Z28yLWdvb2dsZS5jb20="; 
 
-// 1. Генерируем файл конфигурации, чтобы mtg не ругался на "stat"
-const configPath = path.join(__dirname, 'config.toml');
-const configContent = `
-secret = "${SECRET}"
-bind = "0.0.0.0:3128"
-`;
+// Чистый HEX-секрет (32 символа) + префикс ee для FakeTLS
+const RAW_HEX = "0123456789abcdef0123456789abcdef";
+const SECRET = "ee" + RAW_HEX;
 
-try {
-    fs.writeFileSync(configPath, configContent);
-    console.log("[SYSTEM]: Файл конфигурации создан.");
-} catch (err) {
-    console.error("[SYSTEM-ERROR]: Не удалось создать конфиг:", err);
-}
-
-// 2. Веб-сервер для Health Check (чтобы Render не выключал сервис)
+// 1. Простейший веб-сервер для Render
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('Proxy is active');
+    res.end('Proxy Status: Online');
 }).listen(PORT, () => {
-    console.log(`[SYSTEM]: Health-check запущен на порту ${PORT}`);
+    console.log(`[SYSTEM]: Веб-заглушка готова на порту ${PORT}`);
     
-    // Вывод ссылок в консоль
+    // Формируем ссылки
     const tgLink = `tg://proxy?server=${HOSTNAME}&port=443&secret=${SECRET}`;
     const webLink = `https://t.me/proxy?server=${HOSTNAME}&port=443&secret=${SECRET}`;
     
     console.log("\n" + "=".repeat(50));
-    console.log("🚀 ПРОКСИ ЗАПУЩЕН!");
-    console.log(`🔗 Ссылка: ${tgLink}`);
-    console.log(`🌍 Резерв: ${webLink}`);
+    console.log("🚀 ПРОКСИ ЗАПУЩЕН И ГОТОВ!");
+    console.log(`🔗 Ссылка для входа: ${tgLink}`);
+    console.log(`🌍 Ссылка t.me: ${webLink}`);
     console.log("=".repeat(50) + "\n");
 });
 
-// 3. Запуск прокси через файл конфигурации
-// Мы передаем путь к файлу, так mtg работает стабильнее всего
-const mtg = spawn('./mtg', ['run', configPath]);
+// 2. Запуск MTProxy с префиксом hex:
+// Это "ультимативный" способ заставить mtg v2 работать без ошибок парсинга
+const mtg = spawn('./mtg', ['run', `hex:${SECRET}`, '--bind', '0.0.0.0:3128']);
 
 mtg.stdout.on('data', (data) => {
     if (!data.toString().includes("stats")) console.log(`[MTG]: ${data}`);
 });
 
 mtg.stderr.on('data', (data) => {
-    const msg = data.toString();
-    // Игнорируем отладочную инфу, выводим только ошибки
-    if (msg.toLowerCase().includes("error") || msg.toLowerCase().includes("fatal")) {
-        console.error(`[MTG-ERROR]: ${msg}`);
+    const errorMsg = data.toString();
+    if (errorMsg.includes("error") || errorMsg.includes("fatal")) {
+        console.error(`[MTG-ERROR]: ${errorMsg}`);
     }
 });
