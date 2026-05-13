@@ -6,33 +6,38 @@ const PORT = process.env.PORT || 10000;
 const MTG_PORT = 3128;
 const HOST = process.env.RENDER_EXTERNAL_HOSTNAME || "your-app.onrender.com";
 
-// ee + 32 символа hex
-const HEX_SECRET = "0123456789abcdef0123456789abcdef"; 
-const TG_SECRET = "ee" + HEX_SECRET; 
+// 1. ГЕНЕРИРУЕМ ВАЛИДНЫЙ FAKETLS СЕКРЕТ
+const MASK_DOMAIN = "yandex.ru";
+// Превращаем "yandex.ru" в hex -> "79616e6465782e7275"
+const domainHex = Buffer.from(MASK_DOMAIN, 'utf8').toString('hex');
+// Генерируем случайный или фиксированный ключ (32 символа hex)
+const rawKey = "11223344556677889900aabbccddeeff";
+// Собираем полный секрет: ee + ключ + hex_домена
+const FULL_SECRET = "ee" + rawKey + domainHex;
 
-// Убрали проблемную секцию prefer-ip. Оставляем только базовые параметры.
+// 2. Записываем в конфиг чистые параметры
 const configContent = `
-secret = "${TG_SECRET}"
+secret = "${FULL_SECRET}"
 bind = "127.0.0.1:${MTG_PORT}"
 `;
 fs.writeFileSync('./config.toml', configContent);
 
-// Запуск mtg с чистым конфигом
+// 3. Запускаем mtg
 const mtg = spawn('./mtg', ['run', './config.toml'], { stdio: 'inherit' });
 
 mtg.on('error', (err) => console.error("MTG Spawn Error:", err));
 
-// Умный мультиплексор для Render
+// 4. Мультиплексор (Health Check Render + Telegram)
 net.createServer(client => {
     client.once('data', data => {
         const head = data.toString();
         
-        // Отвечаем на пинги Render (Health Check)
+        // Отвечаем на запросы Render, чтобы контейнер не падал
         if (head.startsWith('GET') || head.startsWith('HEAD') || head.startsWith('POST')) {
             client.write("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK");
             client.destroy();
         } else {
-            // Перенаправляем чистый трафик Telegram в mtg
+            // Перенаправляем трафик Telegram в mtg
             const proxy = net.createConnection(MTG_PORT, '127.0.0.1', () => {
                 proxy.write(data);
                 client.pipe(proxy).pipe(client);
@@ -42,12 +47,10 @@ net.createServer(client => {
         }
     });
 }).listen(PORT, '0.0.0.0', () => {
-    // yandex.ru в hex формате — это 79616e6465782e7275
-    const finalSecret = TG_SECRET + "79616e6465782e7275";
-    
     console.log("\n" + "=".repeat(50));
-    console.log("🚀 FakeTLS ПРОКСИ ЗАПУЩЕН!");
-    console.log(`🌍 Маскировка под: yandex.ru`);
-    console.log(`🔗 Ссылка: tg://proxy?server=${HOST}&port=443&secret=${finalSecret}`);
+    console.log("🚀 FakeTLS ПРОКСИ СКОНФИГУРИРОВАН И ЗАПУЩЕН!");
+    console.log(`🌍 Маскировка под домен: ${MASK_DOMAIN}`);
+    console.log(`🔗 Нажмите для подключения в Telegram:`);
+    console.log(`tg://proxy?server=${HOST}&port=443&secret=${FULL_SECRET}`);
     console.log("=".repeat(50) + "\n");
 });
