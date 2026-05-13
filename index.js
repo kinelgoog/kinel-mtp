@@ -10,22 +10,30 @@ const HOST = process.env.RENDER_EXTERNAL_HOSTNAME || "your-app.onrender.com";
 // НАСТРОЙКА FAKETLS ДЛЯ MAX.RU
 // ==========================================
 const MASK_DOMAIN = "max.ru";
-// "max.ru" в hex -> "6d61782e7275"
 const domainHex = Buffer.from(MASK_DOMAIN, 'utf8').toString('hex');
 const rawKey = "1234567890abcdef1234567890abcdef";
 const FULL_SECRET = "ee" + rawKey + domainHex;
 
 // ==========================================
-// МИНИМАЛЬНЫЙ КОНФИГ
+// ПРАВИЛЬНЫЙ БЛОК DNS ДЛЯ MTG V2
 // ==========================================
 const configContent = `
 secret = "${FULL_SECRET}"
 bind-to = "127.0.0.1:${MTG_PORT}"
+
+[dns]
+# Переключаем mtg на классический DNS вместо DoH
+block-ipv6 = true
+
+# Явно задаем сетевые маршруты для резолвера внутри mtg
+routes = [
+    { host = "max.ru", ips = ["185.129.100.121", "185.129.100.122"] }
+]
 `;
 fs.writeFileSync('./config.toml', configContent);
 
 // ==========================================
-// ЗАПУСК MTG И ВЫВОД ЛОГОВ
+// ЗАПУСК И СТРИМИНГ ЛОГОВ
 // ==========================================
 const mtg = spawn('./mtg', ['run', './config.toml']);
 
@@ -40,7 +48,7 @@ mtg.stderr.on('data', (data) => {
 mtg.on('error', (err) => console.error("❌ Сбой бинарника:", err));
 
 // ==========================================
-// МУЛЬТИПЛЕКСОР (HEALTH CHECK + TG)
+// МУЛЬТИПЛЕКСОР ДЛЯ RENDER
 // ==========================================
 net.createServer(client => {
     client.once('data', data => {
@@ -60,8 +68,8 @@ net.createServer(client => {
     });
 }).listen(PORT, '0.0.0.0', () => {
     console.log("\n" + "⚡".repeat(25));
-    console.log("🚀 ПРОКСИ ОБНОВЛЕН И ЗАПУЩЕН!");
-    console.log(`🌍 Маскировка системы: ${MASK_DOMAIN}`);
+    console.log("🚀 ПРОКСИ ЗАПУЩЕН И ОТЛАЖЕН!");
+    console.log(`🌍 Маскировка: ${MASK_DOMAIN}`);
     console.log(`\n🔗 ПОДКЛЮЧЕНИЕ В TELEGRAM:`);
     console.log(`tg://proxy?server=${HOST}&port=443&secret=${FULL_SECRET}`);
     console.log("⚡".repeat(25) + "\n");
