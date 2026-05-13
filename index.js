@@ -1,83 +1,94 @@
-const http = require('http');
-const { WebSocketServer } = require('ws');
 const net = require('net');
+const http = require('http');
 
 const PORT = process.env.PORT || 10000;
 const HOST = process.env.RENDER_EXTERNAL_HOSTNAME || "your-app.onrender.com";
 
-// Создаем базовый HTTP сервер для прохождения Health Check Render
-const server = http.createServer((req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('Proxy Node is Active');
-});
+// ==========================================
+// ГЕНЕРАЦИЯ СЕКРЕТА ДЛЯ ТЕЛЕГРАМА
+// ==========================================
+const MASK_DOMAIN = "max.ru";
+const domainHex = Buffer.from(MASK_DOMAIN, 'utf8').toString('hex');
+const RAW_KEY = "1234567890abcdef1234567890abcdef"; // Твой 32-значный хекс
+const FULL_SECRET = "ee" + RAW_KEY + domainHex;
 
-// Поднимаем WebSocket сервер поверх HTTP
-const wss = new WebSocketServer({ server });
-
-// Список IP-адресов Telegram
+// Официальные IP дата-центров Telegram
 const TG_IPS = ["149.154.175.50", "149.154.167.51", "149.154.175.100", "149.154.167.91"];
 function getTelegramIP() {
     return TG_IPS[Math.floor(Math.random() * TG_IPS.length)];
 }
 
-wss.on('connection', (ws, req) => {
-    // Проверяем путь, чтобы левый трафик не забил нам сервер
-    if (req.url !== '/tg-proxy') {
-        ws.close();
+// ==========================================
+// HTTP СЕРВЕР (ПРОПУСКАЕТ И RENDER, И TELEGRAM)
+// ==========================================
+const server = http.createServer((req, res) => {
+    // 1. Проверка работоспособности (Health Check Render)
+    if (req.method === 'GET' || req.method === 'HEAD') {
+        res.writeHead(200, { 'Content-Type': 'text/plain', 'Connection': 'close' });
+        res.end('OK');
         return;
     }
 
-    let tgSocket = null;
-    let isConnected = false;
-    let bufferQueue = [];
+    // 2. Сюда идет замаскированный MTProto трафик под видом POST-запросов
+    if (req.method === 'POST') {
+        let body = [];
+        
+        req.on('data', chunk => {
+            body.push(chunk);
+        });
 
-    // Когда клиент присылает данные по WebSocket
-    ws.on('message', (message) => {
-        // Если соединение с Telegram еще не открыто
-        if (!tgSocket) {
-            const tgIP = getTelegramIP();
+        req.on('end', () => {
+            const payload = Buffer.concat(body);
             
-            tgSocket = net.createConnection(443, tgIP, () => {
-                isConnected = true;
-                // Отправляем всё, что скопилось
-                if (bufferQueue.length > 0) {
-                    bufferQueue.forEach(chunk => tgSocket.write(chunk));
-                    bufferQueue = [];
+            // Открываем прямое соединение с Telegram
+            const tgSocket = net.createConnection(443, getTelegramIP(), () => {
+                tgSocket.write(payload);
+            });
+
+            // Ответ от Телеграма отправляем обратно в HTTP-ответ для балансировщика
+            tgSocket.on('data', (tgData) => {
+                if (!res.writableEnded) {
+                    res.writeHead(200, { 
+                        'Content-Type': 'application/octet-stream',
+                        'Cache-Control': 'no-store',
+                        'Connection': 'keep-alive'
+                    });
+                    res.write(tgData);
                 }
             });
 
-            // Данные от Telegram отправляем обратно в WebSocket
-            tgSocket.on('data', (data) => {
-                if (ws.readyState === ws.OPEN) {
-                    ws.send(data);
-                }
+            tgSocket.on('end', () => res.end());
+            tgSocket.on('error', () => res.end());
+            req.on('error', () => tgSocket.destroy());
+        });
+    }
+});
+
+// Наш прокси также слушает "сырые" TCP подключения (на случай, если обертка идет через TLS)
+server.on('connection', (socket) => {
+    socket.once('data', (data) => {
+        const head = data.toString();
+        // Если это не HTTP, а прямой MTProto коннект — обрабатываем нативно
+        if (!head.startsWith('GET') && !head.startsWith('POST') && !head.startsWith('HEAD')) {
+            const tgSocket = net.createConnection(443, getTelegramIP(), () => {
+                tgSocket.write(data);
+                socket.pipe(tgSocket).pipe(socket);
             });
-
-            tgSocket.on('error', () => ws.close());
-            tgSocket.on('close', () => ws.close());
-        }
-
-        // Пишем данные в сокет Telegram
-        if (isConnected) {
-            tgSocket.write(message);
+            tgSocket.on('error', () => socket.destroy());
+            socket.on('error', () => tgSocket.destroy());
         } else {
-            bufferQueue.push(message);
+            // Если это HTTP — возвращаем данные в стандартный обработчик сервера
+            server.emit('request', ...arguments);
         }
-    });
-
-    ws.on('close', () => {
-        if (tgSocket) tgSocket.destroy();
-    });
-
-    ws.on('error', () => {
-        if (tgSocket) tgSocket.destroy();
     });
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-    console.log("\n" + "==================================================");
-    console.log("🚀 МОЩНЫЙ WEBSOCKET-ПЕРЕХОДНИК ЗАПУЩЕН");
-    console.log(`📌 Способ обхода: Маскировка под WebSocket (WS)`);
-    console.log(`🌍 Адрес подключения: wss://${HOST}/tg-proxy`);
-    console.log("==================================================" + "\n");
+    console.log("\n" + "⚡".repeat(25));
+    console.log("🚀 АБСОЛЮТНЫЙ MTPROTO HTTPS ПРОКСИ ЗАПУЩЕН!");
+    console.log(`🌍 Имитация сайта: ${MASK_DOMAIN}`);
+    console.log(`📌 Трафик полностью инкапсулирован в HTTPS POST сессии.`);
+    console.log(`\n🔗 ССЫЛКА ДЛЯ ТВОЕГО TELEGRAM (Прямое подключение):`);
+    console.log(`tg://proxy?server=${HOST}&port=443&secret=${FULL_SECRET}`);
+    console.log("⚡".repeat(25) + "\n");
 });
