@@ -6,26 +6,23 @@ const PORT = process.env.PORT || 10000;
 const MTG_PORT = 3128;
 const HOST = process.env.RENDER_EXTERNAL_HOSTNAME || "your-app.onrender.com";
 
-// 1. Генерируем секрет и правильный FakeTLS конфиг
 // ee + 32 символа hex
 const HEX_SECRET = "0123456789abcdef0123456789abcdef"; 
 const TG_SECRET = "ee" + HEX_SECRET; 
 
+// Убрали проблемную секцию prefer-ip. Оставляем только базовые параметры.
 const configContent = `
 secret = "${TG_SECRET}"
 bind = "127.0.0.1:${MTG_PORT}"
-
-[prefer-ip]
-prefer = "ipv4"
 `;
 fs.writeFileSync('./config.toml', configContent);
 
-// 2. Запускаем mtg с чистым конфигом
+// Запуск mtg с чистым конфигом
 const mtg = spawn('./mtg', ['run', './config.toml'], { stdio: 'inherit' });
 
 mtg.on('error', (err) => console.error("MTG Spawn Error:", err));
 
-// 3. Умный мультиплексор для Render
+// Умный мультиплексор для Render
 net.createServer(client => {
     client.once('data', data => {
         const head = data.toString();
@@ -45,7 +42,6 @@ net.createServer(client => {
         }
     });
 }).listen(PORT, '0.0.0.0', () => {
-    // Формируем финальный секрет для ссылки (секрет + hex-версия домена)
     // yandex.ru в hex формате — это 79616e6465782e7275
     const finalSecret = TG_SECRET + "79616e6465782e7275";
     
