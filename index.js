@@ -16,25 +16,16 @@ const rawKey = "1234567890abcdef1234567890abcdef";
 const FULL_SECRET = "ee" + rawKey + domainHex;
 
 // ==========================================
-// КОНФИГУРАЦИЯ С ПРЯМЫМ СТАТИЧЕСКИМ DNS
+// МИНИМАЛЬНЫЙ КОНФИГ
 // ==========================================
 const configContent = `
 secret = "${FULL_SECRET}"
 bind-to = "127.0.0.1:${MTG_PORT}"
-
-[dns]
-# Указываем публичные DNS напрямую, минуя упавший резолвер Render
-servers = ["1.1.1.1:53", "8.8.8.8:53"]
-
-# Жесткие маршруты для max.ru (IP-адреса хоста)
-routes = [
-    { host = "max.ru", ips = ["185.129.100.121", "185.129.100.122"] }
-]
 `;
 fs.writeFileSync('./config.toml', configContent);
 
 // ==========================================
-// ЗАПУСК MTG И ВЫВОД ЛОГОВ В КОНСОЛЬ
+// ЗАПУСК MTG И ВЫВОД ЛОГОВ
 // ==========================================
 const mtg = spawn('./mtg', ['run', './config.toml']);
 
@@ -70,7 +61,7 @@ net.createServer(client => {
 }).listen(PORT, '0.0.0.0', () => {
     console.log("\n" + "⚡".repeat(25));
     console.log("🚀 ПРОКСИ ОБНОВЛЕН И ЗАПУЩЕН!");
-    console.log(`🌍 Новая маскировка: ${MASK_DOMAIN}`);
+    console.log(`🌍 Маскировка системы: ${MASK_DOMAIN}`);
     console.log(`\n🔗 ПОДКЛЮЧЕНИЕ В TELEGRAM:`);
     console.log(`tg://proxy?server=${HOST}&port=443&secret=${FULL_SECRET}`);
     console.log("⚡".repeat(25) + "\n");
