@@ -2,14 +2,16 @@ FROM node:18-slim
 
 WORKDIR /app
 
-# Скачиваем бинарный файл прокси (версия v2.1.7)
-ADD https://github.com/9seconds/mtg/releases/download/v2.1.7/mtg-2.1.7-linux-amd64 /app/mtg
-RUN chmod +x /app/mtg
+# Скачиваем архив, распаковываем и достаем бинарник mtg
+# ADD автоматически не распаковывает удаленные файлы, поэтому делаем это вручную
+ADD https://github.com/9seconds/mtg/releases/download/v2.1.7/mtg-2.1.7-linux-amd64.tar.gz /app/mtg.tar.gz
 
-# Копируем скрипт управления
+RUN tar -xf mtg.tar.gz && \
+    mv mtg-2.1.7-linux-amd64/mtg /app/mtg && \
+    rm -rf mtg-2.1.7-linux-amd64.tar.gz mtg-2.1.7-linux-amd64
+
 COPY index.js ./
 
-# Указываем порт (Render сам подставит нужное значение)
 EXPOSE $PORT
 
 CMD ["node", "index.js"]
